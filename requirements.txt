@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+streamlit
+python-multipart
+langchain-google-genai
+langchain
+python-dotenv
+pypdf
+requests
