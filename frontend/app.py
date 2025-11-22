@@ -69,7 +69,7 @@ st.markdown("""
 # --- UI LAYOUT ---
 
 st.markdown('<div class="main-header">✨ Agentic AI Summarizer</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Powered by Google Gemini & LangChain</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Give your documents a brain — AI summaries in seconds using Gemini + FastAPI.</div>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
