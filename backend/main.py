@@ -1,95 +1,60 @@
 import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
-from langchain_core.documents import Document
-from langchain_core.runnables import RunnableSequence
-import uvicorn
-import PyPDF2
-import io
 
-# Load env variables
+from services.pdf_reader import read_pdf
+from services.vector_store import store_document
+from agents.orchestrator import Orchestrator
+
 load_dotenv()
 
-# FastAPI
-app = FastAPI(
-    title="Agentic AI Summarizer API",
-    description="API backend using Google Gemini to summarize documents",
-    version="1.0.0"
-)
-
-# LLM
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash", 
-    temperature=0.5,
-    max_retries=2,
-    # This setting helps avoid the "deprecated" warning you saw
-    convert_system_message_to_human=True 
-)
-
-# PDF Reader
-def read_pdf(file_bytes):
-    pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
+app = FastAPI(title="Agentic AI Backend", version="1.0")
 
 
 @app.get("/")
-def read_root():
-    return {"message": "Server running. Visit /docs"}
+def root():
+    return {"message": "Backend running"}
 
 
+# ------------------------ UPLOAD ------------------------
+@app.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    raw = await file.read()
+
+    if "pdf" in file.content_type:
+        text = read_pdf(raw)
+    else:
+        text = raw.decode("utf-8")
+
+    if not text:
+        raise HTTPException(400, "No readable text in file")
+
+    doc_id = store_document(text)
+    return {"doc_id": doc_id}
+
+
+# ------------------------ SUMMARIZE ------------------------
 @app.post("/summarize")
-async def summarize_document(file: UploadFile = File(...)):
-    filename = file.filename
-    content_type = file.content_type
-
-    try:
-        file_content = await file.read()
-
-        # Extract text
-        if "pdf" in content_type:
-            text_data = read_pdf(file_content)
-        else:
-            text_data = file_content.decode("utf-8")
-
-        if not text_data:
-            raise HTTPException(status_code=400, detail="Could not extract text")
-
-        # Prompt
-        template = """
-        Provide a detailed, clear and concise summary of the following content:
-
-        {text}
-
-        SUMMARY:
-        """
-
-        prompt = PromptTemplate(
-            template=template,
-            input_variables=["text"]
-        )
-
-        # Create runnable chain
-        chain = (
-            {"text": lambda x: x["doc"].page_content}
-            | prompt
-            | llm
-        )
-
-        doc = Document(page_content=text_data)
-
-        summary = chain.invoke({"doc": doc})
-
-        return {"filename": filename, "summary": summary.content}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def summarize(doc_id: str, style: str = "concise"):
+    result = Orchestrator.summarize(doc_id, style)
+    return {"summary": result}
 
 
+# ------------------------ ASK ------------------------
+@app.post("/ask")
+def ask(payload: dict):
+    doc_id = payload.get("doc_id")
+    question = payload.get("question")
+
+    if not doc_id or not question:
+        raise HTTPException(400, "doc_id and question required")
+
+    answer, retrieved = Orchestrator.answer(doc_id, question)
+
+    return {"answer": answer, "retrieved": retrieved}
+
+
+# Run server
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
